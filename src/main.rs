@@ -224,18 +224,18 @@ async fn main() {
                 }
                 draw_text(
                     format!("Score: {}", score).as_str(),
-                    10.0,
-                    35.0,
-                    25.0,
+                    16.0,
+                    16.0,
+                    16.0,
                     WHITE,
                 );
                 let highscore_text = format!("High score: {}", high_score);
-                let text_dimensions = measure_text(highscore_text.as_str(), None, 25, 1.0);
+                let text_dimensions = measure_text(highscore_text.as_str(), None, 16, 1.0);
                 draw_text(
                     highscore_text.as_str(),
-                    screen_width() - text_dimensions.width - 10.0,
-                    35.0,
-                    25.0,
+                    screen_width() - text_dimensions.width - 16.0,
+                    16.0,
+                    16.0,
                     WHITE,
                 );
             }
@@ -244,12 +244,12 @@ async fn main() {
                     game_state = GameState::Playing;
                 }
                 let text = "Paused";
-                let text_dimensions = measure_text(text, None, 50, 1.0);
+                let text_dimensions = measure_text(text, None, 32, 1.0);
                 draw_text(
                     text,
                     screen_width() / 2.0 - text_dimensions.width / 2.0,
                     screen_height() / 2.0,
-                    50.0,
+                    32.0,
                     WHITE,
                 );
             }
@@ -258,16 +258,26 @@ async fn main() {
                     game_state = GameState::MainMenu;
                 }
                 let text = "GAME OVER!";
-                let text_dimensions = measure_text(text, None, 50, 1.0);
+                let text_dimensions = measure_text(text, None, 32, 1.0);
                 draw_text(
                     text,
                     screen_width() / 2.0 - text_dimensions.width / 2.0,
                     screen_height() / 2.0,
-                    50.0,
+                    32.0,
                     RED,
                 );
             }
+
+            
         }
+
+        draw_text(
+            get_fps().to_string().as_str(),
+            16.0,
+            32.0,
+            16.0,
+            GOLD,
+        );
 
         next_frame().await
     }
