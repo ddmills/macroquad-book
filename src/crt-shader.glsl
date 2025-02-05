@@ -37,12 +37,11 @@ void DrawScanline( inout vec3 color, vec2 uv )
 void main() {
     vec2 crtUV = CRTCurveUV(uv);
     vec3 res = texture2D(Texture, uv).rgb * color.rgb;
-    if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0)
-    {
-        res = vec3(0.0, 0.0, 0.0);
-    }
-    DrawVignette(res, crtUV);
-    DrawScanline(res, crtUV);
+    // if (crtUV.x < 0.0 || crtUV.x > 1.0 || crtUV.y < 0.0 || crtUV.y > 1.0)
+    // {
+    //     res = vec3(0.0, 0.0, 0.0);
+    // }
+    // DrawVignette(res, crtUV);
+    // DrawScanline(res, crtUV);
     gl_FragColor = vec4(res, 1.0);
-
 }
