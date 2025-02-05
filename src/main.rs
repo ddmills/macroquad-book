@@ -90,6 +90,7 @@ fn get_preferred_size(texel_size: u32) -> IVec2 {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    set_default_filter_mode(FilterMode::Nearest);
     let texel_size = 2;
     let mut pref_size: IVec2 = get_preferred_size(texel_size);
 
@@ -140,7 +141,13 @@ async fn main() {
             vertex: CRT_VERTEX_SHADER,
             fragment: CRT_FRAGMENT_SHADER,
         },
-        Default::default(),
+        MaterialParams {
+            uniforms: vec![
+                UniformDesc::new("iResolution", UniformType::Float2),
+                UniformDesc::new("iTime", UniformType::Float1),
+            ],
+            ..Default::default()
+        },
     )
     .unwrap();
 
@@ -152,6 +159,7 @@ async fn main() {
 
         if cur_target_size != pref_size {
             main_render_target = render_target(pref_size.x as u32, pref_size.y as u32);
+            main_render_target.texture.set_filter(FilterMode::Nearest);
         }
 
         set_camera(&Camera2D {
@@ -166,19 +174,16 @@ async fn main() {
         starfield_material.set_uniform("direction_modifier", direction_modifier);
         gl_use_material(&starfield_material);
         draw_texture_ex(
-            &starfield_render_target.texture,
+            &main_render_target.texture,
             0.,
             0.,
             WHITE,
             DrawTextureParams {
-                // dest_size: Some(vec2(screen_width(), screen_height())),
                 dest_size: Some(vec2(pref_size_f32.x, pref_size_f32.y)),
                 ..Default::default()
             },
         );
         gl_use_default_material();
-
-        draw_line(0., 100., 100., 100., 2.0, BLUE);
 
         match game_state {
             GameState::MainMenu => {
@@ -194,7 +199,7 @@ async fn main() {
                     game_state = GameState::Playing;
                 }
                 let text = "Press space";
-                let text_dimensions = measure_text(text, None, 50, 1.0);
+                let text_dimensions = measure_text(text, None, 32, 1.0);
                 draw_text_ex(
                     text,
                     pref_size_f32.x / 2.0 - text_dimensions.width / 2.0,
@@ -299,8 +304,8 @@ async fn main() {
                 }
                 draw_text(
                     format!("Score: {}", score).as_str(),
-                    16.0,
-                    16.0,
+                    32.0,
+                    32.,
                     16.0,
                     WHITE,
                 );
@@ -308,8 +313,8 @@ async fn main() {
                 let text_dimensions = measure_text(highscore_text.as_str(), None, 16, 1.0);
                 draw_text(
                     highscore_text.as_str(),
-                    pref_size_f32.x - text_dimensions.width - 16.0,
-                    16.0,
+                    pref_size_f32.x - text_dimensions.width - 32.0,
+                    32.,
                     16.0,
                     WHITE,
                 );
@@ -333,12 +338,12 @@ async fn main() {
                     game_state = GameState::MainMenu;
                 }
                 let text = "GAME OVER!";
-                let text_dimensions = measure_text(text, None, 32, 1.0);
+                let text_dimensions = measure_text(text, None, 16, 1.0);
                 draw_text(
                     text,
                     pref_size_f32.x / 2.0 - text_dimensions.width / 2.0,
                     pref_size_f32.y / 2.0,
-                    32.0,
+                    16.0,
                     RED,
                 );
             }
@@ -346,7 +351,9 @@ async fn main() {
 
 
         set_default_camera();
-        clear_background(WHITE);
+        clear_background(ORANGE);
+        crt_material.set_uniform("iTime", get_time() as f32);
+        crt_material.set_uniform("iResolution", (pref_size_f32.x, pref_size_f32.y));
         gl_use_material(&crt_material);
 
         let screen_pad_x = (screen_width() - ((pref_size.x as f32) * (texel_size as f32))) * 0.5;
