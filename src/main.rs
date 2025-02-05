@@ -1,10 +1,9 @@
 use macroquad::prelude::*;
 
-use std::fs;
+use std::{fs, str::FromStr};
 
-const FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
-
-const VERTEX_SHADER: &str = "#version 100
+const STARFIELD_FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
+const STARFIELD_VERTEX_SHADER: &str = "#version 100
 attribute vec3 position;
 attribute vec2 texcoord;
 attribute vec4 color0;
@@ -17,6 +16,25 @@ uniform vec4 _Time;
 void main() {
     gl_Position = Projection * Model * vec4(position, 1);
     iTime = _Time.x;
+}
+";
+
+const CRT_FRAGMENT_SHADER: &str = include_str!("crt-shader.glsl");
+const CRT_VERTEX_SHADER:&str = "#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+
+varying lowp vec2 uv;
+varying lowp vec4 color;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1);
+    color = color0 / 255.0;
+    uv = texcoord;
 }
 ";
 
@@ -50,7 +68,23 @@ enum GameState {
     GameOver,
 }
 
-#[macroquad::main("Cathedral")]
+
+fn get_conf() -> Conf {
+    Conf {
+        window_title: "Cathedral".to_string(),
+        window_width: 800,
+        window_height: 600,
+        // high_dpi: todo!(),
+        fullscreen: false,
+        // sample_count: todo!(),
+        window_resizable: false,
+        // icon: todo!(),
+        // platform: todo!(),
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(get_conf())]
 async fn main() {
     const MOVEMENT_SPEED: f32 = 200.0;
 
@@ -71,12 +105,14 @@ async fn main() {
     let mut game_state = GameState::MainMenu;
 
     let mut direction_modifier: f32 = 0.0;
-    let render_target = render_target(320, 150);
-    render_target.texture.set_filter(FilterMode::Nearest);
-    let material = load_material(
+
+    let starfield_render_target = render_target(800, 600);
+    starfield_render_target.texture.set_filter(FilterMode::Nearest);
+
+    let starfield_material = load_material(
         ShaderSource::Glsl {
-            vertex: VERTEX_SHADER,
-            fragment: FRAGMENT_SHADER,
+            vertex: STARFIELD_VERTEX_SHADER,
+            fragment: STARFIELD_FRAGMENT_SHADER,
         },
         MaterialParams {
             uniforms: vec![
@@ -88,14 +124,33 @@ async fn main() {
     )
     .unwrap();
 
+    let crt_render_target = render_target(800, 600);
+    crt_render_target.texture.set_filter(FilterMode::Nearest);
+
+    let crt_material = load_material(
+        ShaderSource::Glsl {
+            vertex: CRT_VERTEX_SHADER,
+            fragment: CRT_FRAGMENT_SHADER,
+        },
+        Default::default(),
+    )
+    .unwrap();
+
     loop {
+        let texel = 2.;
+        set_camera(&Camera2D {
+            zoom: vec2(texel / screen_width(), texel / screen_height()),
+            target: vec2(screen_width() / texel, screen_height() / texel),
+            render_target: Some(crt_render_target.clone()),
+            ..Default::default()
+        });
         clear_background(BLACK);
 
-        material.set_uniform("iResolution", (screen_width(), screen_height()));
-        material.set_uniform("direction_modifier", direction_modifier);
-        gl_use_material(&material);
+        starfield_material.set_uniform("iResolution", (screen_width(), screen_height()));
+        starfield_material.set_uniform("direction_modifier", direction_modifier);
+        gl_use_material(&starfield_material);
         draw_texture_ex(
-            &render_target.texture,
+            &starfield_render_target.texture,
             0.,
             0.,
             WHITE,
@@ -105,6 +160,11 @@ async fn main() {
             },
         );
         gl_use_default_material();
+
+        draw_line(0., 100., screen_width(), 45.0, 3.0, BLUE);
+        draw_circle(-45.0, -35.0, 20.0, YELLOW);
+        draw_circle(45.0, -35.0, 20.0, GREEN);
+
 
         match game_state {
             GameState::MainMenu => {
@@ -271,6 +331,21 @@ async fn main() {
             
         }
 
+        set_default_camera();
+        clear_background(WHITE);
+        gl_use_material(&crt_material);
+        draw_texture_ex(
+            &crt_render_target.texture,
+            0.,
+            0.,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(screen_width(), screen_height())),
+                ..Default::default()
+            },
+        );
+        gl_use_default_material();
+
         draw_text(
             get_fps().to_string().as_str(),
             16.0,
@@ -278,7 +353,6 @@ async fn main() {
             16.0,
             GOLD,
         );
-
         next_frame().await
     }
 }
