@@ -425,7 +425,6 @@ fn render_shapes(q_shapes: Query<&Glyph>, mat: Res<GlyphMaterial>) {
 }
 
 fn setup_player(mut cmds: Commands, screen: Res<Screen>) {
-    trace!("Setup!");
     cmds.spawn((
         Player { speed: 200. },
         Glyph {
@@ -438,7 +437,6 @@ fn setup_player(mut cmds: Commands, screen: Res<Screen>) {
 }
 
 fn teardown(mut cmds: Commands, q_shapes: Query<Entity, With<Glyph>>) {
-    trace!("Teardown!");
     for e in q_shapes.iter() {
         cmds.entity(e).despawn();
     }
