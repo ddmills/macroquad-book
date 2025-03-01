@@ -1,5 +1,5 @@
 use bevy_ecs::prelude::*;
-use macroquad::{prelude::*, shapes};
+use macroquad::{prelude::*, texture::RenderTarget};
 
 use std::{collections::HashSet, fs};
 
@@ -17,6 +17,25 @@ uniform vec4 _Time;
 void main() {
     gl_Position = Projection * Model * vec4(position, 1);
     iTime = _Time.x;
+}
+";
+
+const GLYPH_FRAGMENT_SHADER: &str = include_str!("glyph-shader.glsl");
+const GLYPH_VERTEX_SHADER: &str = "#version 400
+attribute vec3 position;
+attribute vec2 texcoord;
+
+varying lowp vec2 uv;
+varying flat uint idx;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+uniform vec4 _idx;
+
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1);
+    uv = texcoord;
+    idx = uint(_idx.x);
 }
 ";
 
@@ -38,6 +57,17 @@ void main() {
     uv = texcoord;
 }
 ";
+
+#[derive(Resource, Default)]
+struct GlyphMaterial {
+    pub material: Option<Material>,
+    pub texture: Option<Texture2D>
+}
+
+#[derive(Resource, Default)]
+struct MainRenderTarget {
+    pub target: Option<RenderTarget>,
+}
 
 #[derive(Resource, Default)]
 struct CurrentState {
@@ -203,10 +233,35 @@ fn update_key_input(mut keys: ResMut<KeyInput>) {
     keys.pressed = get_keys_pressed();
 }
 
-fn update_screen(mut screen: ResMut<Screen>) {
-    let size = get_preferred_size(2);
-    screen.width = size.x as usize;
-    screen.height = size.y as usize;
+fn update_screen(mut screen: ResMut<Screen>, mut main_render_target: ResMut<MainRenderTarget>) {
+    let screen_size = get_preferred_size(2);
+    screen.width = screen_size.x as usize;
+    screen.height = screen_size.y as usize;
+
+    let pref_size_f32 = screen_size.as_vec2();
+
+    let Some(ref target) = main_render_target.target else {
+        trace!("NO RENDER TARGET!");
+        return;
+    };
+
+    // let cur_target_size = target.texture.size().as_ivec2();
+
+    // let mut t = target.clone();
+
+    // if cur_target_size != screen_size {
+    //     let new_target = render_target(screen_size.x as u32, screen_size.y as u32);
+    //     new_target.texture.set_filter(FilterMode::Nearest);
+    //     t = new_target.clone();
+    //     main_render_target.target = Some(new_target);
+    // }
+
+    // set_camera(&Camera2D {
+    //     zoom: vec2(1. / pref_size_f32.x * 2., 1. / pref_size_f32.y * 2.),
+    //     target: vec2((pref_size_f32.x * 0.5f32).floor(), (pref_size_f32.y * 0.5f32).floor()),
+    //     render_target: Some(t.clone()),
+    //     ..Default::default()
+    // });
 }
 
 fn update_player(
@@ -387,16 +442,35 @@ fn render_fps(time: Res<Time>) {
     );
 }
 
-fn render_shapes(q_shapes: Query<&Shape>) {
+fn render_shapes(q_shapes: Query<&Shape>, mat: Res<GlyphMaterial>) {
+    let material = mat.material.clone().unwrap();
+    let texture = mat.texture.clone().unwrap();
+    gl_use_material(&material);
+    
     for shape in q_shapes.iter() {
-        draw_rectangle(
-            shape.x - shape.size / 2.0,
-            shape.y - shape.size / 2.0,
-            shape.size,
-            shape.size,
-            GREEN,
-        );
+        material.set_uniform("fg1", Color::from_rgba(10, 20, 255, 255));
+        material.set_uniform("fg2", Color::from_rgba(10, 255, 30, 255));
+        material.set_uniform("outline", Color::from_rgba(10, 255, 30, 255));
+        material.set_uniform("bg", Color::from_rgba(10, 20, 30, 0));
+        material.set_uniform("idx", 25u32);
+        // draw_texture(&texture, shape.x, shape.y, WHITE);
+        draw_texture_ex(&texture, shape.x, shape.y, WHITE, DrawTextureParams {
+            dest_size: Some(vec2(shape.size, shape.size)),
+            source: None,
+            rotation: 0.,
+            flip_x: false,
+            flip_y: false,
+            pivot: None,
+        });
+        // draw_rectangle(
+        //     shape.x - shape.size / 2.0,
+        //     shape.y - shape.size / 2.0,
+        //     shape.size,
+        //     shape.size,
+        //     GREEN,
+        // );
     }
+    gl_use_default_material();
 }
 
 fn setup_player(mut cmds: Commands, screen: Res<Screen>) {
@@ -431,6 +505,8 @@ async fn main() {
     world.init_resource::<Screen>();
     world.init_resource::<KeyInput>();
     world.init_resource::<CurrentState>();
+    world.init_resource::<GlyphMaterial>();
+    world.init_resource::<MainRenderTarget>();
 
     let mut schedule = Schedule::default();
     let mut schedule_post_update = Schedule::default();
@@ -447,7 +523,7 @@ async fn main() {
         update_game_over.run_if(in_state(GameState::GameOver)),
         setup_player.run_if(enter_state(GameState::Playing)),
         update_playing.run_if(in_state(GameState::Playing)),
-        teardown.run_if(leave_state(GameState::Playing)),
+        teardown.run_if(leave_state(GameState::MainMenu)),
     ).chain());
 
     schedule.add_systems(
@@ -468,12 +544,35 @@ async fn main() {
     let mut main_render_target = render_target(pref_size.x as u32, pref_size.y as u32);
     main_render_target.texture.set_filter(FilterMode::Nearest);
 
-    rand::srand(miniquad::date::now() as u64);
+    world.insert_resource(MainRenderTarget {
+        target: Some(main_render_target)
+    });
 
-    let mut score: u32 = 0;
-    let mut high_score: u32 = fs::read_to_string("highscore.dat")
-        .map_or(Ok(0), |i| i.parse::<u32>())
-        .unwrap_or(0);
+    let glyph_material = load_material(
+        ShaderSource::Glsl {
+            vertex: GLYPH_VERTEX_SHADER,
+            fragment: GLYPH_FRAGMENT_SHADER,
+        },
+        MaterialParams {
+            uniforms: vec![
+                UniformDesc::new("fg1", UniformType::Float4),
+                UniformDesc::new("fg2", UniformType::Float4),
+                UniformDesc::new("bg", UniformType::Float4),
+                UniformDesc::new("outline", UniformType::Float4),
+                UniformDesc::new("idx", UniformType::Int1),
+            ],
+            ..Default::default()
+        },
+    ).unwrap();
+
+    let glyph_texture = load_texture("./src/cowboy.png").await.unwrap();
+
+    world.insert_resource(GlyphMaterial {
+        material: Some(glyph_material),
+        texture: Some(glyph_texture),
+    });
+
+    rand::srand(miniquad::date::now() as u64);
 
     let mut direction_modifier: f32 = 0.0;
 
@@ -513,7 +612,11 @@ async fn main() {
     loop {
         pref_size = get_preferred_size(texel_size);
         let pref_size_f32 = pref_size.as_vec2();
-        let cur_target_size = main_render_target.texture.size().as_ivec2();
+        
+        let r = world.get_resource::<MainRenderTarget>().unwrap();
+        let target = r.target.clone().unwrap();
+
+        let cur_target_size = target.texture.size().as_ivec2();
 
         if cur_target_size != pref_size {
             main_render_target = render_target(pref_size.x as u32, pref_size.y as u32);
@@ -523,7 +626,7 @@ async fn main() {
         set_camera(&Camera2D {
             zoom: vec2(1. / pref_size_f32.x * 2., 1. / pref_size_f32.y * 2.),
             target: vec2((pref_size_f32.x * 0.5f32).floor(), (pref_size_f32.y * 0.5f32).floor()),
-            render_target: Some(main_render_target.clone()),
+            render_target: Some(target.clone()),
             ..Default::default()
         });
         clear_background(BLACK);
@@ -532,7 +635,7 @@ async fn main() {
         starfield_material.set_uniform("direction_modifier", direction_modifier);
         gl_use_material(&starfield_material);
         draw_texture_ex(
-            &main_render_target.texture,
+            &target.texture,
             0.,
             0.,
             WHITE,
@@ -557,8 +660,9 @@ async fn main() {
 
         let dest_size = pref_size_f32 * vec2(texel_size as f32, texel_size as f32);
 
+
         draw_texture_ex(
-            &main_render_target.texture,
+            &target.texture,
             screen_pad_x,
             screen_pad_y,
             WHITE,
@@ -568,7 +672,6 @@ async fn main() {
             },
         );
         gl_use_default_material();
-
 
         next_frame().await
     }
