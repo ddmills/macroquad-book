@@ -3,19 +3,18 @@
 precision lowp float;
 
 in vec2 uv;
-in flat uint idx;
 
+uniform float idx;
 uniform vec4 fg1;
 uniform vec4 fg2;
 uniform vec4 outline;
 uniform vec4 bg;
-// uniform flat uint idx;
 uniform sampler2D Texture;
 
 void main() {
     vec2 uv_scaled = uv / 16.0; // atlas is 16x16
-    float x = float(idx % 16u);
-    float y = float(idx / 16u);
+    float x = float(uint(idx) % 16u);
+    float y = float(uint(idx) / 16u);
     vec2 uv_offset = vec2(x, y) / 16.0;
 
     vec2 tex_uv = uv_offset + uv_scaled;

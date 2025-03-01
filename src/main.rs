@@ -1,7 +1,10 @@
 use bevy_ecs::prelude::*;
-use macroquad::{prelude::*, texture::RenderTarget};
+use macroquad::{
+    miniquad::{BlendFactor, BlendState, BlendValue, Equation},
+    prelude::*,
+};
 
-use std::{collections::HashSet, fs};
+use std::collections::HashSet;
 
 const STARFIELD_FRAGMENT_SHADER: &str = include_str!("starfield-shader.glsl");
 const STARFIELD_VERTEX_SHADER: &str = "#version 100
@@ -26,21 +29,18 @@ attribute vec3 position;
 attribute vec2 texcoord;
 
 varying lowp vec2 uv;
-varying flat uint idx;
 
 uniform mat4 Model;
 uniform mat4 Projection;
-uniform vec4 _idx;
 
 void main() {
     gl_Position = Projection * Model * vec4(position, 1);
     uv = texcoord;
-    idx = uint(_idx.x);
 }
 ";
 
 const CRT_FRAGMENT_SHADER: &str = include_str!("crt-shader.glsl");
-const CRT_VERTEX_SHADER:&str = "#version 100
+const CRT_VERTEX_SHADER: &str = "#version 100
 attribute vec3 position;
 attribute vec2 texcoord;
 attribute vec4 color0;
@@ -61,12 +61,7 @@ void main() {
 #[derive(Resource, Default)]
 struct GlyphMaterial {
     pub material: Option<Material>,
-    pub texture: Option<Texture2D>
-}
-
-#[derive(Resource, Default)]
-struct MainRenderTarget {
-    pub target: Option<RenderTarget>,
+    pub texture: Option<Texture2D>,
 }
 
 #[derive(Resource, Default)]
@@ -95,11 +90,11 @@ struct KeyInput {
 }
 
 impl KeyInput {
-    pub fn is_down(&self, key:KeyCode) -> bool {
+    pub fn is_down(&self, key: KeyCode) -> bool {
         self.down.contains(&key)
     }
 
-    pub fn is_pressed(&self, key:KeyCode) -> bool {
+    pub fn is_pressed(&self, key: KeyCode) -> bool {
         self.pressed.contains(&key)
     }
 }
@@ -120,13 +115,14 @@ struct Bullet {
 }
 
 #[derive(Component)]
-struct Shape {
+struct Glyph {
     size: f32,
+    idx: usize,
     x: f32,
     y: f32,
 }
 
-impl Shape {
+impl Glyph {
     fn collides_with(&self, other: &Self) -> bool {
         self.rect().overlaps(&other.rect())
     }
@@ -152,7 +148,7 @@ enum GameState {
 
 fn update_shapes(
     mut cmds: Commands,
-    mut q_shapes: Query<(Entity, &Faller, &mut Shape)>,
+    mut q_shapes: Query<(Entity, &Faller, &mut Glyph)>,
     time: Res<Time>,
     screen: Res<Screen>,
 ) {
@@ -167,7 +163,7 @@ fn update_shapes(
 
 fn update_bullets(
     mut cmds: Commands,
-    mut q_bullets: Query<(Entity, &Bullet, &mut Shape)>,
+    mut q_bullets: Query<(Entity, &Bullet, &mut Glyph)>,
     time: Res<Time>,
 ) {
     for (entity, bullet, mut shape) in q_bullets.iter_mut() {
@@ -181,9 +177,9 @@ fn update_bullets(
 
 fn check_collisions(
     mut cmds: Commands,
-    q_bullets: Query<(Entity, &Shape), With<Bullet>>,
-    q_fallers: Query<(Entity, &Shape), With<Faller>>,
-    q_player: Single<(Entity, &Shape), With<Player>>,
+    q_bullets: Query<(Entity, &Glyph), With<Bullet>>,
+    q_fallers: Query<(Entity, &Glyph), With<Faller>>,
+    q_player: Single<(Entity, &Glyph), With<Player>>,
     mut state: ResMut<CurrentState>,
 ) {
     for (e_bullet, s_bullet) in q_bullets.iter() {
@@ -211,8 +207,9 @@ fn spawn_shapes(mut cmds: Commands, screen: Res<Screen>) {
         let max_x = screen.width as f32 - size / 2.;
 
         cmds.spawn((
-            Shape {
+            Glyph {
                 size,
+                idx: 25,
                 x: rand::gen_range(min_x, max_x),
                 y: -size,
             },
@@ -233,41 +230,16 @@ fn update_key_input(mut keys: ResMut<KeyInput>) {
     keys.pressed = get_keys_pressed();
 }
 
-fn update_screen(mut screen: ResMut<Screen>, mut main_render_target: ResMut<MainRenderTarget>) {
+fn update_screen(mut screen: ResMut<Screen>) {
     let screen_size = get_preferred_size(2);
     screen.width = screen_size.x as usize;
     screen.height = screen_size.y as usize;
-
-    let pref_size_f32 = screen_size.as_vec2();
-
-    let Some(ref target) = main_render_target.target else {
-        trace!("NO RENDER TARGET!");
-        return;
-    };
-
-    // let cur_target_size = target.texture.size().as_ivec2();
-
-    // let mut t = target.clone();
-
-    // if cur_target_size != screen_size {
-    //     let new_target = render_target(screen_size.x as u32, screen_size.y as u32);
-    //     new_target.texture.set_filter(FilterMode::Nearest);
-    //     t = new_target.clone();
-    //     main_render_target.target = Some(new_target);
-    // }
-
-    // set_camera(&Camera2D {
-    //     zoom: vec2(1. / pref_size_f32.x * 2., 1. / pref_size_f32.y * 2.),
-    //     target: vec2((pref_size_f32.x * 0.5f32).floor(), (pref_size_f32.y * 0.5f32).floor()),
-    //     render_target: Some(t.clone()),
-    //     ..Default::default()
-    // });
 }
 
 fn update_player(
     mut cmds: Commands,
     keys: Res<KeyInput>,
-    q_player: Single<(&mut Shape, &Player)>,
+    q_player: Single<(&mut Glyph, &Player)>,
     time: Res<Time>,
     screen: Res<Screen>,
 ) {
@@ -297,29 +269,22 @@ fn update_player(
             Bullet {
                 speed: player.speed * 2.0,
             },
-            Shape {
+            Glyph {
+                idx: 22,
                 x: shape.x,
                 y: shape.y,
                 size: 5.0,
-            }
+            },
         ));
     }
 }
 
-fn update_main_menu(
-    keys: Res<KeyInput>,
-    mut state: ResMut<CurrentState>,
-    screen: Res<Screen>,
-) {
+fn update_main_menu(keys: Res<KeyInput>, mut state: ResMut<CurrentState>, screen: Res<Screen>) {
     if keys.is_pressed(KeyCode::Escape) {
         std::process::exit(0);
     }
 
     if keys.is_pressed(KeyCode::Space) {
-        // bullets.clear();
-        // player.x = pref_size_f32.x / 2.0;
-        // player.y = pref_size_f32.y / 2.0;
-        // score = 0;
         state.next = GameState::Playing;
     }
 
@@ -336,16 +301,12 @@ fn update_main_menu(
             font_scale: 1.0,
             font_scale_aspect: 1.0,
             rotation: 0.,
-            color: WHITE
-        }
+            color: WHITE,
+        },
     );
 }
 
-fn update_paused(
-    keys: Res<KeyInput>,
-    mut state: ResMut<CurrentState>,
-    screen: Res<Screen>,
-) {
+fn update_paused(keys: Res<KeyInput>, mut state: ResMut<CurrentState>, screen: Res<Screen>) {
     if keys.is_pressed(KeyCode::Escape) {
         std::process::exit(0);
     }
@@ -366,11 +327,7 @@ fn update_paused(
     );
 }
 
-fn update_game_over(
-    keys: Res<KeyInput>,
-    mut state: ResMut<CurrentState>,
-    screen: Res<Screen>,
-) {
+fn update_game_over(keys: Res<KeyInput>, mut state: ResMut<CurrentState>, screen: Res<Screen>) {
     if keys.is_pressed(KeyCode::Space) {
         state.next = GameState::MainMenu;
     }
@@ -387,10 +344,7 @@ fn update_game_over(
     );
 }
 
-fn update_playing(
-    keys: Res<KeyInput>,
-     mut state: ResMut<CurrentState>,
-) {
+fn update_playing(keys: Res<KeyInput>, mut state: ResMut<CurrentState>) {
     if keys.is_pressed(KeyCode::Escape) {
         state.next = GameState::Paused;
     }
@@ -429,46 +383,43 @@ fn window_conf() -> Conf {
 }
 
 fn get_preferred_size(texel_size: u32) -> IVec2 {
-    ivec2((screen_width() / texel_size as f32) as i32, (screen_height() / texel_size as f32) as i32)
+    ivec2(
+        (screen_width() / texel_size as f32) as i32,
+        (screen_height() / texel_size as f32) as i32,
+    )
 }
 
 fn render_fps(time: Res<Time>) {
-    draw_text(
-        time.fps.to_string().as_str(),
-        16.0,
-        32.0,
-        16.0,
-        GOLD,
-    );
+    draw_text(time.fps.to_string().as_str(), 16.0, 32.0, 16.0, GOLD);
 }
 
-fn render_shapes(q_shapes: Query<&Shape>, mat: Res<GlyphMaterial>) {
+fn render_shapes(q_shapes: Query<&Glyph>, mat: Res<GlyphMaterial>) {
     let material = mat.material.clone().unwrap();
     let texture = mat.texture.clone().unwrap();
     gl_use_material(&material);
-    
+
     for shape in q_shapes.iter() {
         material.set_uniform("fg1", Color::from_rgba(10, 20, 255, 255));
         material.set_uniform("fg2", Color::from_rgba(10, 255, 30, 255));
         material.set_uniform("outline", Color::from_rgba(10, 255, 30, 255));
-        material.set_uniform("bg", Color::from_rgba(10, 20, 30, 0));
-        material.set_uniform("idx", 25u32);
-        // draw_texture(&texture, shape.x, shape.y, WHITE);
-        draw_texture_ex(&texture, shape.x, shape.y, WHITE, DrawTextureParams {
-            dest_size: Some(vec2(shape.size, shape.size)),
-            source: None,
-            rotation: 0.,
-            flip_x: false,
-            flip_y: false,
-            pivot: None,
-        });
-        // draw_rectangle(
-        //     shape.x - shape.size / 2.0,
-        //     shape.y - shape.size / 2.0,
-        //     shape.size,
-        //     shape.size,
-        //     GREEN,
-        // );
+        material.set_uniform("bg", Color::from_rgba(0, 0, 0, 0));
+        material.set_uniform("idx", shape.idx as f32);
+        let x = shape.x - shape.size / 2.0;
+        let y = shape.y - shape.size / 2.0;
+        draw_texture_ex(
+            &texture,
+            x,
+            y,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(vec2(shape.size, shape.size)),
+                source: None,
+                rotation: 0.,
+                flip_x: false,
+                flip_y: false,
+                pivot: None,
+            },
+        );
     }
     gl_use_default_material();
 }
@@ -476,21 +427,17 @@ fn render_shapes(q_shapes: Query<&Shape>, mat: Res<GlyphMaterial>) {
 fn setup_player(mut cmds: Commands, screen: Res<Screen>) {
     trace!("Setup!");
     cmds.spawn((
-        Player {
-            speed: 200.,
-        },
-        Shape {
+        Player { speed: 200. },
+        Glyph {
             size: 32.,
+            idx: 4,
             x: screen.width as f32 / 2.0,
             y: screen.height as f32 / 2.0,
         },
     ));
 }
 
-fn teardown(
-    mut cmds: Commands,
-    q_shapes: Query<Entity, With<Shape>>,
-) {
+fn teardown(mut cmds: Commands, q_shapes: Query<Entity, With<Glyph>>) {
     trace!("Teardown!");
     for e in q_shapes.iter() {
         cmds.entity(e).despawn();
@@ -506,27 +453,27 @@ async fn main() {
     world.init_resource::<KeyInput>();
     world.init_resource::<CurrentState>();
     world.init_resource::<GlyphMaterial>();
-    world.init_resource::<MainRenderTarget>();
 
-    let mut schedule = Schedule::default();
+    let mut schedule_update = Schedule::default();
     let mut schedule_post_update = Schedule::default();
 
     schedule_post_update.add_systems(update_states);
 
-    schedule.add_systems(
-        (update_time, render_fps, update_key_input, update_screen).chain()
+    schedule_update.add_systems((update_time, render_fps, update_key_input, update_screen).chain());
+
+    schedule_update.add_systems(
+        (
+            update_main_menu.run_if(in_state(GameState::MainMenu)),
+            update_paused.run_if(in_state(GameState::Paused)),
+            update_game_over.run_if(in_state(GameState::GameOver)),
+            setup_player.run_if(enter_state(GameState::Playing)),
+            update_playing.run_if(in_state(GameState::Playing)),
+            teardown.run_if(leave_state(GameState::MainMenu)),
+        )
+            .chain(),
     );
 
-    schedule.add_systems((
-        update_main_menu.run_if(in_state(GameState::MainMenu)),
-        update_paused.run_if(in_state(GameState::Paused)),
-        update_game_over.run_if(in_state(GameState::GameOver)),
-        setup_player.run_if(enter_state(GameState::Playing)),
-        update_playing.run_if(in_state(GameState::Playing)),
-        teardown.run_if(leave_state(GameState::MainMenu)),
-    ).chain());
-
-    schedule.add_systems(
+    schedule_update.add_systems(
         (
             check_collisions,
             spawn_shapes,
@@ -534,7 +481,8 @@ async fn main() {
             update_shapes,
             update_bullets,
             render_shapes,
-        ).run_if(in_state(GameState::Playing))
+        )
+            .run_if(in_state(GameState::Playing)),
     );
 
     set_default_filter_mode(FilterMode::Nearest);
@@ -543,10 +491,6 @@ async fn main() {
 
     let mut main_render_target = render_target(pref_size.x as u32, pref_size.y as u32);
     main_render_target.texture.set_filter(FilterMode::Nearest);
-
-    world.insert_resource(MainRenderTarget {
-        target: Some(main_render_target)
-    });
 
     let glyph_material = load_material(
         ShaderSource::Glsl {
@@ -559,11 +503,20 @@ async fn main() {
                 UniformDesc::new("fg2", UniformType::Float4),
                 UniformDesc::new("bg", UniformType::Float4),
                 UniformDesc::new("outline", UniformType::Float4),
-                UniformDesc::new("idx", UniformType::Int1),
+                UniformDesc::new("idx", UniformType::Float1),
             ],
+            pipeline_params: PipelineParams {
+                color_blend: Some(BlendState::new(
+                    Equation::Add,
+                    BlendFactor::Value(BlendValue::SourceAlpha),
+                    BlendFactor::OneMinusValue(BlendValue::SourceAlpha),
+                )),
+                ..Default::default()
+            },
             ..Default::default()
         },
-    ).unwrap();
+    )
+    .unwrap();
 
     let glyph_texture = load_texture("./src/cowboy.png").await.unwrap();
 
@@ -577,7 +530,9 @@ async fn main() {
     let mut direction_modifier: f32 = 0.0;
 
     let starfield_render_target = render_target(800, 600);
-    starfield_render_target.texture.set_filter(FilterMode::Nearest);
+    starfield_render_target
+        .texture
+        .set_filter(FilterMode::Nearest);
 
     let starfield_material = load_material(
         ShaderSource::Glsl {
@@ -612,12 +567,9 @@ async fn main() {
     loop {
         pref_size = get_preferred_size(texel_size);
         let pref_size_f32 = pref_size.as_vec2();
-        
-        let r = world.get_resource::<MainRenderTarget>().unwrap();
-        let target = r.target.clone().unwrap();
 
-        let cur_target_size = target.texture.size().as_ivec2();
-
+        // NOTE: it is important that the render target outlives the current frame.
+        let cur_target_size = main_render_target.texture.size().as_ivec2();
         if cur_target_size != pref_size {
             main_render_target = render_target(pref_size.x as u32, pref_size.y as u32);
             main_render_target.texture.set_filter(FilterMode::Nearest);
@@ -625,17 +577,21 @@ async fn main() {
 
         set_camera(&Camera2D {
             zoom: vec2(1. / pref_size_f32.x * 2., 1. / pref_size_f32.y * 2.),
-            target: vec2((pref_size_f32.x * 0.5f32).floor(), (pref_size_f32.y * 0.5f32).floor()),
-            render_target: Some(target.clone()),
+            target: vec2(
+                (pref_size_f32.x * 0.5f32).floor(),
+                (pref_size_f32.y * 0.5f32).floor(),
+            ),
+            render_target: Some(main_render_target.clone()),
             ..Default::default()
         });
+
         clear_background(BLACK);
 
         starfield_material.set_uniform("iResolution", (pref_size_f32.x, pref_size_f32.y));
         starfield_material.set_uniform("direction_modifier", direction_modifier);
         gl_use_material(&starfield_material);
         draw_texture_ex(
-            &target.texture,
+            &main_render_target.texture,
             0.,
             0.,
             WHITE,
@@ -646,7 +602,7 @@ async fn main() {
         );
         gl_use_default_material();
 
-        schedule.run(&mut world);
+        schedule_update.run(&mut world);
         schedule_post_update.run(&mut world);
 
         set_default_camera();
@@ -660,9 +616,8 @@ async fn main() {
 
         let dest_size = pref_size_f32 * vec2(texel_size as f32, texel_size as f32);
 
-
         draw_texture_ex(
-            &target.texture,
+            &main_render_target.texture,
             screen_pad_x,
             screen_pad_y,
             WHITE,
